@@ -1,8 +1,13 @@
 async function loadAndPlay(videoElement, contentId) {
-  const licenseResp = await fetch('http://localhost:8080/license?content_id=' + encodeURIComponent(contentId), {method:'POST'});
-  const keyBuf = await licenseResp.arrayBuffer();
-  const key = keyBuf.slice(0,16);
-  const iv = keyBuf.slice(16,32);
+  const licenseResp = await fetch('http://localhost:8080/license', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content_id: contentId})
+  });
+  const {license} = await licenseResp.json();
+  const keyBytes = Uint8Array.from(atob(license), c => c.charCodeAt(0));
+  const key = keyBytes.slice(0,16);
+  const iv = keyBytes.slice(16,32);
 
   const encResp = await fetch('encrypted.mp4');
   const encData = await encResp.arrayBuffer();

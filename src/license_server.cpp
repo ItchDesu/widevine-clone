@@ -19,7 +19,18 @@ int main() {
     });
 
     svr.Post("/license", [](const httplib::Request& req, httplib::Response& res){
-        auto cid = req.get_param_value("content_id");
+        auto body = req.body;
+        auto pos = body.find("\"content_id\"");
+        if (pos == std::string::npos) {
+            res.status = 400;
+            res.set_content("missing content_id", "text/plain");
+            return;
+        }
+        pos = body.find(':', pos);
+        pos = body.find('"', pos);
+        auto end = body.find('"', pos + 1);
+        std::string cid = body.substr(pos + 1, end - pos - 1);
+
         std::string key_data = load_file(cid + ".key");
         if (key_data.empty()) {
             res.status = 404;
@@ -28,7 +39,8 @@ int main() {
         }
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Access-Control-Allow-Headers", "*");
-        res.set_content(key_data, "application/octet-stream");
+        std::string b64 = httplib::detail::base64_encode(key_data);
+        res.set_content("{\"license\":\"" + b64 + "\"}", "application/json");
     });
     std::cout << "License server running on http://localhost:8080\n";
     svr.listen("127.0.0.1", 8080);
