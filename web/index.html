@@ -5,7 +5,9 @@
   <title>DRM Demo</title>
   <script src="player.js"></script>
 </head>
-<body onload="loadAndPlay(document.getElementById('v'), 'bbb')">
+<body>
+  <input id="token" placeholder="Auth token" />
+  <button onclick="loadAndPlay(document.getElementById('v'), 'bbb', document.getElementById('token').value)">Play</button>
   <video id="v" controls></video>
 </body>
 </html>
