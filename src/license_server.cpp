@@ -161,6 +161,9 @@ int main() {
     // Endpoint para obtener la clave pública
     svr.Get("/public_key", [public_key_path](const httplib::Request&, httplib::Response& res){
         set_cors_headers(res);
+        res.set_header("Cache-Control", "no-store, must-revalidate");
+        res.set_header("Pragma", "no-cache");
+        res.set_header("Expires", "0");
         const std::string pub = load_file(public_key_path);
         res.set_content(pub, "application/x-pem-file");
     });
