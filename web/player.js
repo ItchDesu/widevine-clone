@@ -83,9 +83,9 @@ export async function loadAndPlay(videoElement, contentId, token) {
   // Importa como SPKI (RSA)
   const publicKey = await importPublicKeyFromPem(publicKeyPem);
 
-  // 3) Verificación firma: payload EXACTO = cid + expiry + license (tal cual)
+  // 3) Verificación firma: payload = JSON {cid,expiry,license}
   const enc = new TextEncoder();
-  const payloadText = String(contentId) + String(expiry) + String(license);
+  const payloadText = JSON.stringify({ cid: String(contentId), expiry, license });
   const payload = enc.encode(payloadText);
   const sigBytes = b64DecodeToBytes(signature);
 
@@ -110,30 +110,33 @@ export async function loadAndPlay(videoElement, contentId, token) {
     throw new Error('License expired');
   }
 
-  // 5) Extrae key||iv (16+16) de license (base64 estándar)
+  // 5) Extrae key||iv||tag (16+12+16) de license
   const keyBytes = b64DecodeToBytes(license);
-  if (keyBytes.length < 32) {
-    throw new Error('License payload too short (need >= 32 bytes)');
+  if (keyBytes.length < 44) {
+    throw new Error('License payload too short (need >= 44 bytes)');
   }
-  const key = keyBytes.slice(0, 16);
-  const iv  = keyBytes.slice(16, 32);
+  const iv  = keyBytes.slice(16, 28);
+  const tag = keyBytes.slice(28, 44);
 
-  // 6) Descarga y descifra el media (AES-CTR con iv de 16 bytes)
+  // 6) Descarga y descifra el media (AES-GCM)
   const t3 = withTimeout(15000);
-  const encResp = await fetch('encrypted.mp4', {
+  const encResp = await fetch('bbb.mp4', {
     method: 'GET',
     mode: 'cors',
     cache: 'no-store',
     signal: t3.signal
   }).finally(t3.cancel);
   if (!encResp.ok) throw new Error(`Encrypted media error: ${encResp.status}`);
-  const encData = await encResp.arrayBuffer();
+  const encData = new Uint8Array(await encResp.arrayBuffer());
+  const cipher = new Uint8Array(encData.length + tag.length);
+  cipher.set(encData);
+  cipher.set(tag, encData.length);
 
-  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'AES-CTR' }, false, ['decrypt']);
+  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'AES-GCM' }, false, ['decrypt']);
   const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-CTR', counter: iv, length: 128 },
+    { name: 'AES-GCM', iv, tagLength: 128 },
     cryptoKey,
-    encData
+    cipher
   );
 
   // 7) Reproduce
