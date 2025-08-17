@@ -12,7 +12,7 @@ SRV_O="${SRV_O:-Buzzster Dev}"
 DAYS_CA="${DAYS_CA:-3650}"
 DAYS_SRV="${DAYS_SRV:-825}"
 # SANs por defecto: localhost + loopbacks
-SANS="${SANS:-DNS:localhost,IP:127.0.0.1,IP:::1}"
+SANS="${SANS:-DNS:localhost,IP:127.0.0.1,IP:::1,IP:10.0.2.10}"
 
 mkdir -p "$OUTDIR"
 cd "$OUTDIR"
