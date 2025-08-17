@@ -11,7 +11,7 @@ the server's public key.
 ## Build
 
 ```
-# encrypt video
+# encrypt video (AES-128-GCM; key file stores key+iv+tag)
 g++ -std=c++17 src/encrypt_video.cpp -lcrypto -o encrypt_video
 ./encrypt_video input.mp4 encrypted.mp4 sample.key
 
@@ -21,7 +21,8 @@ openssl rsa -in server.key -pubout -out public.pem
 
 # build and start license server (serves `sample.key` for `content_id=sample`)
 g++ -std=c++17 src/license_server.cpp -Iinclude -pthread -lssl -lcrypto -o license_server
-API_TOKEN=your_token CERT_FILE=server.crt KEY_FILE=server.key PUBLIC_KEY_FILE=public.pem ./license_server
+API_TOKEN=your_token CERT_FILE=server.crt KEY_FILE=server.key PUBLIC_KEY_FILE=public.pem \
+ALLOWED_ORIGIN=https://localhost ./license_server
 ```
 
 The license server responds with JSON containing the encrypted key, an
