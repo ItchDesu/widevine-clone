@@ -12,6 +12,8 @@
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
+#include <algorithm>
+#include <cctype>
 
 using json = nlohmann::json;
 
@@ -20,6 +22,10 @@ static const std::string KEYS_DIR = "./"; // p.ej. "/opt/license-keys/"
 static const size_t MAX_BODY_SIZE = 1024;
 static const int EXPIRY_SECONDS = 3600;   // 1 hora
 static const int MAX_REQUESTS_PER_MIN = 60; // rate limit simple
+static std::string ALLOWED_ORIGIN = [] {
+    const char* origin = std::getenv("ALLOWED_ORIGIN");
+    return origin ? origin : "https://localhost";
+}();
 
 // ---- Base64 simple ----
 static const char B64_TBL[] =
@@ -60,10 +66,16 @@ std::string load_file(const std::string& path) {
     return std::string(std::istreambuf_iterator<char>(ifs), {});
 }
 
+bool valid_content_id(const std::string& cid) {
+    return !cid.empty() && std::all_of(cid.begin(), cid.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '_' || c == '-';
+    });
+}
+
 // ==== CORS & errores ====
 void set_cors_headers(httplib::Response& res) {
-    res.set_header("Access-Control-Allow-Origin", "*");
-    res.set_header("Access-Control-Allow-Headers", "*");
+    res.set_header("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+    res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS, GET");
     res.set_header("Vary", "Origin");
 }
@@ -158,6 +170,13 @@ int main() {
         return 1;
     }
 
+    const char* token_env = std::getenv("API_TOKEN");
+    if (!token_env) {
+        std::cerr << "API_TOKEN not set\n";
+        return 1;
+    }
+    const std::string expected_token = token_env;
+
     const char* signing_key_path = std::getenv("LICENSE_SIGNING_KEY");
     if (!signing_key_path) signing_key_path = "license_signing.key";
     EVP_PKEY* signing_key = load_private_key(signing_key_path);
@@ -191,14 +210,12 @@ int main() {
     });
 
     // Endpoint licencia
-    svr.Post("/license", [signing_key](const httplib::Request& req, httplib::Response& res){
+    svr.Post("/license", [signing_key, expected_token](const httplib::Request& req, httplib::Response& res){
         if (!check_rate_limit(req.remote_addr)) {
             send_error(res, 429, "too many requests");
             return;
         }
 
-        const char* token_env = std::getenv("API_TOKEN");
-        std::string expected_token = token_env ? token_env : "demo_token";
         auto auth = req.get_header_value("Authorization");
         if (auth.rfind("Bearer ", 0) != 0 ||
             auth.substr(7) != expected_token) {
@@ -220,6 +237,10 @@ int main() {
             return;
         }
         const std::string cid = body["content_id"].get<std::string>();
+        if (!valid_content_id(cid)) {
+            send_error(res, 400, "invalid content_id");
+            return;
+        }
 
         const std::string key_path = KEYS_DIR + cid + ".key";
         const std::string key_data = load_file(key_path);
@@ -234,7 +255,11 @@ int main() {
         );
 
         long expiry = std::time(nullptr) + EXPIRY_SECONDS;
-        std::string payload = cid + std::to_string(expiry) + b64;
+        json payload_json;
+        payload_json["cid"] = cid;
+        payload_json["expiry"] = expiry;
+        payload_json["license"] = b64;
+        std::string payload = payload_json.dump();
         std::string sig = sign_payload(payload, signing_key);
         if (sig.empty()) {
             send_error(res, 500, "sign error");

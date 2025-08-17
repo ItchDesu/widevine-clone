@@ -5,9 +5,10 @@
 #include <iostream>
 
 // Helper to generate random key/IV pairs with error checking.
-bool generate_key_iv(unsigned char* key, unsigned char* iv, size_t len) {
-    if (RAND_bytes(key, len) != 1) return false;
-    if (RAND_bytes(iv, len) != 1) return false;
+bool generate_key_iv(unsigned char* key, size_t key_len,
+                     unsigned char* iv, size_t iv_len) {
+    if (RAND_bytes(key, key_len) != 1) return false;
+    if (RAND_bytes(iv, iv_len) != 1) return false;
     return true;
 }
 
@@ -23,8 +24,9 @@ int main(int argc, char* argv[]) {
     if (!ofs || !kfs) { std::cerr << "Cannot open output/key file\n"; return 1; }
 
     unsigned char key[16];
-    unsigned char iv[16];
-    if (!generate_key_iv(key, iv, sizeof(key))) {
+    unsigned char iv[12];
+    unsigned char tag[16];
+    if (!generate_key_iv(key, sizeof(key), iv, sizeof(iv))) {
         std::cerr << "Random generation failed\n";
         return 1;
     }
@@ -32,10 +34,12 @@ int main(int argc, char* argv[]) {
     kfs.write(reinterpret_cast<char*>(iv), sizeof(iv));
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    EVP_EncryptInit_ex(ctx, EVP_aes_128_ctr(), nullptr, key, iv);
+    EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, sizeof(iv), nullptr);
+    EVP_EncryptInit_ex(ctx, nullptr, nullptr, key, iv);
 
     std::vector<unsigned char> in(4096);
-    std::vector<unsigned char> out(4096 + EVP_CIPHER_block_size(EVP_aes_128_ctr()));
+    std::vector<unsigned char> out(4096 + EVP_CIPHER_block_size(EVP_aes_128_gcm()));
     int out_len;
     while (ifs.good()) {
         ifs.read(reinterpret_cast<char*>(in.data()), in.size());
@@ -54,6 +58,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     ofs.write(reinterpret_cast<char*>(out.data()), out_len);
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag) != 1) {
+        std::cerr << "Tag retrieval failed\n";
+        EVP_CIPHER_CTX_free(ctx);
+        return 1;
+    }
+    kfs.write(reinterpret_cast<char*>(tag), sizeof(tag));
     EVP_CIPHER_CTX_free(ctx);
     return 0;
 }
